@@ -85,7 +85,44 @@ def fetch_pr_commits(repo: str, pr_number: str, token: str) -> list[dict[str, st
     return commits
 
 
-def fallback_commits_from_git(merge_sha: str) -> list[dict[str, str]]:
+def git_object_exists(revision: str) -> bool:
+    if not revision:
+        return False
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{revision}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def commit_entries(shas: list[str]) -> list[dict[str, str]]:
+    commits: list[dict[str, str]] = []
+    for sha in shas:
+        message = run_git("show", "-s", "--format=%B", sha)
+        subject = message.splitlines()[0].strip() if message else ""
+        commits.append({"sha": sha, "subject": subject, "message": message})
+    return commits
+
+
+def pr_head_commits_from_git(pr_base_sha: str, pr_head_sha: str) -> list[dict[str, str]]:
+    if not git_object_exists(pr_base_sha) or not git_object_exists(pr_head_sha):
+        return []
+
+    merge_base = run_git("merge-base", pr_base_sha, pr_head_sha, check=False)
+    if not merge_base:
+        return []
+
+    shas = [line for line in run_git("rev-list", "--reverse", f"{merge_base}..{pr_head_sha}").splitlines() if line]
+    return commit_entries(shas)
+
+
+def fallback_commits_from_git(merge_sha: str, pr_base_sha: str = "", pr_head_sha: str = "") -> list[dict[str, str]]:
+    pr_head_commits = pr_head_commits_from_git(pr_base_sha, pr_head_sha)
+    if pr_head_commits:
+        return pr_head_commits
+
     parent_line = run_git("rev-list", "--parents", "-n", "1", merge_sha)
     parts = parent_line.split()
     shas: list[str] = []
@@ -95,12 +132,7 @@ def fallback_commits_from_git(merge_sha: str) -> list[dict[str, str]]:
         shas = [line for line in run_git("rev-list", "--reverse", f"{parts[1]}..{merge_sha}").splitlines() if line]
     else:
         shas = [merge_sha]
-    commits: list[dict[str, str]] = []
-    for sha in shas:
-        message = run_git("show", "-s", "--format=%B", sha)
-        subject = message.splitlines()[0].strip() if message else ""
-        commits.append({"sha": sha, "subject": subject, "message": message})
-    return commits
+    return commit_entries(shas)
 
 
 def parse_semver(tag: str) -> tuple[int, int, int]:
@@ -187,6 +219,8 @@ def main() -> int:
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     merge_sha = os.environ.get("MERGE_COMMIT_SHA", "").strip()
     pr_number = os.environ.get("PR_NUMBER", "").strip()
+    pr_base_sha = os.environ.get("PR_BASE_SHA", "").strip()
+    pr_head_sha = os.environ.get("PR_HEAD_SHA", "").strip()
     _pr_body = os.environ.get("PR_BODY", "")
     pr_title = os.environ.get("PR_TITLE", "").strip()
 
@@ -203,7 +237,7 @@ def main() -> int:
         except (RuntimeError, urllib.error.URLError, urllib.error.HTTPError) as exc:
             eprint(f"warning: could not read PR commits from GitHub API, falling back to git history: {exc}")
     if not commits:
-        commits = fallback_commits_from_git(merge_sha)
+        commits = fallback_commits_from_git(merge_sha, pr_base_sha, pr_head_sha)
     if not commits:
         raise RuntimeError("no commit messages were available for release classification")
 
