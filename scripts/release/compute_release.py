@@ -118,7 +118,12 @@ def pr_head_commits_from_git(pr_base_sha: str, pr_head_sha: str) -> list[dict[st
     return commit_entries(shas)
 
 
-def fallback_commits_from_git(merge_sha: str, pr_base_sha: str = "", pr_head_sha: str = "") -> list[dict[str, str]]:
+def fallback_commits_from_git(
+    merge_sha: str,
+    pr_base_sha: str = "",
+    pr_head_sha: str = "",
+    pr_commit_count: int = 0,
+) -> list[dict[str, str]]:
     pr_head_commits = pr_head_commits_from_git(pr_base_sha, pr_head_sha)
     if pr_head_commits:
         return pr_head_commits
@@ -129,7 +134,14 @@ def fallback_commits_from_git(merge_sha: str, pr_base_sha: str = "", pr_head_sha
     if len(parts) >= 3:
         shas = [line for line in run_git("rev-list", "--reverse", f"{parts[1]}..{parts[2]}").splitlines() if line]
     elif len(parts) == 2:
-        shas = [line for line in run_git("rev-list", "--reverse", f"{parts[1]}..{merge_sha}").splitlines() if line]
+        if pr_commit_count > 1:
+            shas = [
+                line
+                for line in run_git("rev-list", "--reverse", "--max-count", str(pr_commit_count), merge_sha).splitlines()
+                if line
+            ]
+        else:
+            shas = [line for line in run_git("rev-list", "--reverse", f"{parts[1]}..{merge_sha}").splitlines() if line]
     else:
         shas = [merge_sha]
     return commit_entries(shas)
@@ -214,6 +226,14 @@ def write_outputs(values: dict[str, str]) -> None:
         sys.stdout.write(payload)
 
 
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        return 0
+    return parsed if parsed > 0 else 0
+
+
 def main() -> int:
     repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
     token = os.environ.get("GITHUB_TOKEN", "").strip()
@@ -221,6 +241,7 @@ def main() -> int:
     pr_number = os.environ.get("PR_NUMBER", "").strip()
     pr_base_sha = os.environ.get("PR_BASE_SHA", "").strip()
     pr_head_sha = os.environ.get("PR_HEAD_SHA", "").strip()
+    pr_commit_count = positive_int(os.environ.get("PR_COMMIT_COUNT", "").strip())
     _pr_body = os.environ.get("PR_BODY", "")
     pr_title = os.environ.get("PR_TITLE", "").strip()
 
@@ -237,7 +258,7 @@ def main() -> int:
         except (RuntimeError, urllib.error.URLError, urllib.error.HTTPError) as exc:
             eprint(f"warning: could not read PR commits from GitHub API, falling back to git history: {exc}")
     if not commits:
-        commits = fallback_commits_from_git(merge_sha, pr_base_sha, pr_head_sha)
+        commits = fallback_commits_from_git(merge_sha, pr_base_sha, pr_head_sha, pr_commit_count)
     if not commits:
         raise RuntimeError("no commit messages were available for release classification")
 

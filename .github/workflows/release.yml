@@ -51,6 +51,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_COMMIT_COUNT: ${{ github.event.pull_request.commits }}
           PR_BODY: ${{ github.event.pull_request.body || '' }}
           PR_TITLE: ${{ github.event.pull_request.title || '' }}  # diagnostics only; release classification ignores PR titles
         run: python3 scripts/release/compute_release.py
