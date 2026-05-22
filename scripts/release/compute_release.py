@@ -135,11 +135,7 @@ def fallback_commits_from_git(
         shas = [line for line in run_git("rev-list", "--reverse", f"{parts[1]}..{parts[2]}").splitlines() if line]
     elif len(parts) == 2:
         if pr_commit_count > 1:
-            shas = [
-                line
-                for line in run_git("rev-list", "--reverse", "--max-count", str(pr_commit_count), merge_sha).splitlines()
-                if line
-            ]
+            return []
         else:
             shas = [line for line in run_git("rev-list", "--reverse", f"{parts[1]}..{merge_sha}").splitlines() if line]
     else:
