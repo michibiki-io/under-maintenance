@@ -1,0 +1,33 @@
+{{- if .Values.traefik.enabled -}}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "under-maintenance.fullname" . }}
+  labels:
+    {{- include "under-maintenance.labels" . | nindent 4 }}
+  {{- with .Values.traefik.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.traefik.entryPoints }}
+  entryPoints:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  routes:
+    {{- range .Values.traefik.routes }}
+    - match: {{ .match | quote }}
+      kind: {{ .kind | default "Rule" }}
+      {{- with .middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      services:
+        - name: {{ include "under-maintenance.fullname" $ }}
+          port: {{ $.Values.service.port }}
+    {{- end }}
+  {{- with .Values.traefik.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

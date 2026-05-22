@@ -1,0 +1,106 @@
+:root {
+  color-scheme: light;
+  background: #f8fafc;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow-x: hidden;
+  background: #f8fafc;
+}
+
+.page {
+  position: relative;
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  padding: clamp(20px, 5vw, 56px);
+}
+
+.hero-frame {
+  width: min(100%, 1080px);
+  transform: translateY(-28px);
+}
+
+.hero {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.language-button {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 1;
+  min-width: 84px;
+  min-height: 44px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1);
+  color: #0f172a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 16px;
+}
+
+.language-button:hover {
+  border-color: rgba(37, 99, 235, 0.38);
+  transform: translateY(-1px);
+}
+
+.language-button:active {
+  transform: translateY(0);
+}
+
+.language-button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 3px;
+}
+
+@media (max-width: 840px) {
+  .page {
+    align-content: start;
+    padding: 12px 0 20px;
+    place-items: start center;
+  }
+
+  .hero-frame {
+    width: 100%;
+    overflow: hidden;
+    transform: none;
+  }
+
+  .hero {
+    width: clamp(760px, 235vw, 940px);
+    max-width: none;
+    margin-left: 50%;
+    transform: translate(-50%, -72px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .language-button {
+    transition: none;
+  }
+
+  .language-button:hover {
+    transform: none;
+  }
+}

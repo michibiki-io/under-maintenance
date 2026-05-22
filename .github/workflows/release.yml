@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  pull_request_target:
+    types:
+      - closed
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: read
+
+concurrency:
+  group: release-${{ github.repository }}-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ${{ vars.ACTIONS_RUNNER || 'ubuntu-latest' }}
+    if: >-
+      ${{ github.event.pull_request.merged == true
+      && github.event.pull_request.base.ref == 'main'
+      && startsWith(github.event.pull_request.head.ref, 'feature/') }}
+    env:
+      RELEASE_BRANCH: main
+      IMAGE_REGISTRY: ghcr.io
+      HELM_OCI_PREFIX: oci://ghcr.io/michibiki-io/charts
+    steps:
+      - name: Check out merge commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --force --tags origin
+
+      - name: Compute release metadata
+        id: compute
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          PR_TITLE: ${{ github.event.pull_request.title || '' }}  # diagnostics only; release classification ignores PR titles
+        run: python3 scripts/release/compute_release.py
+
+      - name: Skip when no release is required
+        if: steps.compute.outputs.release_required != 'true'
+        run: echo "No releasable commit messages were found for this merged pull request."
+      - name: Set up Node.js
+        if: steps.compute.outputs.release_required == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          check-latest: true
+      - name: Install root Node dependencies
+        if: steps.compute.outputs.release_required == 'true'
+        run: npm ci
+      - name: Build root Node project
+        if: steps.compute.outputs.release_required == 'true'
+        run: npm run build
+      - name: Create annotated git tag
+        if: steps.compute.outputs.release_required == 'true' && steps.compute.outputs.tag_exists != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.compute.outputs.git_tag }}" -m "Release ${{ steps.compute.outputs.git_tag }}"
+          git push origin "${{ steps.compute.outputs.git_tag }}"
+      - name: Normalize image name
+        if: steps.compute.outputs.release_required == 'true'
+        id: image
+        shell: bash
+        run: |
+          lower_repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          echo "image=${IMAGE_REGISTRY}/${lower_repository}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        if: steps.compute.outputs.release_required == 'true'
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        if: steps.compute.outputs.release_required == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to container registry
+        if: steps.compute.outputs.release_required == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ env.IMAGE_REGISTRY == 'ghcr.io' && github.actor || secrets.REGISTRY_USERNAME }}
+          password: ${{ env.IMAGE_REGISTRY == 'ghcr.io' && secrets.GITHUB_TOKEN || secrets.REGISTRY_PASSWORD }}
+
+      - name: Derive Docker metadata
+        if: steps.compute.outputs.release_required == 'true'
+        id: docker_meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.image }}
+          tags: |
+            type=raw,value=${{ steps.compute.outputs.docker_tag }}
+
+      - name: Build and push multi-arch Docker image
+        if: steps.compute.outputs.release_required == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          annotations: ${{ steps.docker_meta.outputs.annotations }}
+          build-args: |
+            BUILD_VERSION=${{ steps.compute.outputs.git_tag }}
+            BUILD_COMMIT=${{ github.event.pull_request.merge_commit_sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+      - name: Set up Helm
+        if: steps.compute.outputs.release_required == 'true'
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: latest
+
+      - name: Log in to Helm OCI registry
+        if: steps.compute.outputs.release_required == 'true'
+        shell: bash
+        run: |
+          helm_registry="${HELM_OCI_PREFIX#oci://}"
+          helm_registry="${helm_registry%%/*}"
+          if [[ "${helm_registry}" == "ghcr.io" ]]; then
+            echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${helm_registry}" --username "${{ github.actor }}" --password-stdin
+          else
+            echo "${{ secrets.REGISTRY_PASSWORD }}" | helm registry login "${helm_registry}" --username "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+          fi
+
+      - name: Lint Helm chart
+        if: steps.compute.outputs.release_required == 'true'
+        run: helm lint deploy/chart
+
+      - name: Package Helm chart
+        if: steps.compute.outputs.release_required == 'true'
+        shell: bash
+        run: >-
+          mkdir -p dist &&
+          helm package deploy/chart
+          --destination dist
+          --version "${{ steps.compute.outputs.docker_tag }}"
+          --app-version "${{ steps.compute.outputs.docker_tag }}"
+
+      - name: Push Helm chart
+        if: steps.compute.outputs.release_required == 'true'
+        shell: bash
+        run: |
+          helm push "dist/under-maintenance-${{ steps.compute.outputs.docker_tag }}.tgz" "${{ env.HELM_OCI_PREFIX }}"
+      - name: Generate release notes
+        if: steps.compute.outputs.release_required == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          mkdir -p .github/tmp &&
+          python3 scripts/release/generate_release_notes.py
+          --repo "${GITHUB_REPOSITORY}"
+          --previous-tag "${{ steps.compute.outputs.previous_tag }}"
+          --target "${{ github.event.pull_request.merge_commit_sha }}"
+          --pr-number "${{ github.event.pull_request.number }}"
+          --output .github/tmp/release-notes.md
+
+      - name: Create or update GitHub Release
+        if: steps.compute.outputs.release_required == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.compute.outputs.git_tag }}
+          target_commitish: ${{ github.event.pull_request.merge_commit_sha }}
+          body_path: .github/tmp/release-notes.md
+          draft: false
+          prerelease: false
+          generate_release_notes: false

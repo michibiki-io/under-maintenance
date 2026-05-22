@@ -1,0 +1,16 @@
+**
+
+!package.json
+!package-lock.json
+!index.html
+!tsconfig.json
+!vite.config.ts
+!under-meintenance.en.svg
+!under-meintenance.jp.svg
+!src/
+!src/**
+!server/
+!server/Cargo.toml
+!server/Cargo.lock
+!server/src/
+!server/src/**

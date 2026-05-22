@@ -1,0 +1,58 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/michibiki-io/under-maintenance
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: maintenance.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+traefik:
+  enabled: false
+  annotations: {}
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`maintenance.local`) && PathPrefix(`/`)
+      kind: Rule
+      middlewares: []
+  tls: {}
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

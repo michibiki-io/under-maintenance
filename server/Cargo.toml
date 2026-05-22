@@ -1,0 +1,9 @@
+[package]
+name = "client-minihttp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+env_logger = "0.11"
+log = "0.4"
+may_minihttp = { git = "https://github.com/Xudong-Huang/may_minihttp.git", rev = "8d82724ca985e37012ea5b25558a15776dcd9504" }
