@@ -1,5 +1,6 @@
 use may_minihttp::{HttpServerWithHeaders, HttpService, Request, Response};
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -120,11 +121,33 @@ fn pick_file(root: &Path, path: PathBuf) -> PathBuf {
         return path;
     }
 
+    if let Some(asset) = asset_file_for_deep_path(root, &path) {
+        return asset;
+    }
+
     if path.extension().is_none() {
         return root.join("index.html");
     }
 
     path
+}
+
+fn asset_file_for_deep_path(root: &Path, path: &Path) -> Option<PathBuf> {
+    let relative = path.strip_prefix(root).ok()?;
+    let components = relative.components().collect::<Vec<_>>();
+    let assets_position = components
+        .iter()
+        .rposition(|component| component.as_os_str() == OsStr::new("assets"))?;
+
+    let mut asset = root.to_path_buf();
+    for component in components.iter().skip(assets_position) {
+        match component {
+            Component::Normal(part) => asset.push(part),
+            _ => return None,
+        }
+    }
+
+    Some(asset)
 }
 
 fn respond(
@@ -208,6 +231,24 @@ mod tests {
         fs::write(&asset, b"console.log('ok');").expect("failed to write asset");
 
         assert_eq!(pick_file(&root, asset.clone()), asset);
+
+        fs::remove_dir_all(root).expect("failed to remove temp root");
+    }
+
+    #[test]
+    fn deep_relative_asset_paths_are_mapped_to_root_assets() {
+        let root = temp_root();
+        let asset = root.join("assets").join("app.js");
+        fs::create_dir_all(asset.parent().expect("asset should have a parent"))
+            .expect("failed to create asset directory");
+        fs::write(&asset, b"console.log('ok');").expect("failed to write asset");
+
+        let deep_asset = resolve_path(&root, "/foo/assets/app.js").expect("path should resolve");
+        let prefixed_deep_asset =
+            resolve_path(&root, "/maintenance/foo/assets/app.js").expect("path should resolve");
+
+        assert_eq!(pick_file(&root, deep_asset), asset);
+        assert_eq!(pick_file(&root, prefixed_deep_asset), asset);
 
         fs::remove_dir_all(root).expect("failed to remove temp root");
     }
