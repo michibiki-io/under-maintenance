@@ -121,8 +121,10 @@ fn pick_file(root: &Path, path: PathBuf) -> PathBuf {
         return path;
     }
 
-    if let Some(asset) = asset_file_for_deep_path(root, &path) {
-        return asset;
+    if path.extension().is_some() {
+        if let Some(asset) = asset_file_for_deep_path(root, &path) {
+            return asset;
+        }
     }
 
     if path.extension().is_none() {
@@ -133,6 +135,10 @@ fn pick_file(root: &Path, path: PathBuf) -> PathBuf {
 }
 
 fn asset_file_for_deep_path(root: &Path, path: &Path) -> Option<PathBuf> {
+    if path.extension().is_none() {
+        return None;
+    }
+
     let relative = path.strip_prefix(root).ok()?;
     let components = relative.components().collect::<Vec<_>>();
     let assets_position = components
@@ -249,6 +255,21 @@ mod tests {
 
         assert_eq!(pick_file(&root, deep_asset), asset);
         assert_eq!(pick_file(&root, prefixed_deep_asset), asset);
+
+        fs::remove_dir_all(root).expect("failed to remove temp root");
+    }
+
+    #[test]
+    fn extensionless_paths_with_assets_segment_fallback_to_root_index() {
+        let root = temp_root();
+        let index = root.join("index.html");
+        fs::write(&index, b"<main>maintenance</main>").expect("failed to write index");
+
+        let assets = resolve_path(&root, "/foo/assets").expect("path should resolve");
+        let nested_assets = resolve_path(&root, "/foo/assets/bar").expect("path should resolve");
+
+        assert_eq!(pick_file(&root, assets), index);
+        assert_eq!(pick_file(&root, nested_assets), index);
 
         fs::remove_dir_all(root).expect("failed to remove temp root");
     }
